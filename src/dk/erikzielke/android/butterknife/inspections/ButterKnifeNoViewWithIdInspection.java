@@ -1,0 +1,259 @@
+package dk.erikzielke.android.butterknife.inspections;
+
+
+import com.intellij.codeInspection.BaseJavaLocalInspectionTool;
+import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.*;
+import com.intellij.psi.impl.source.tree.java.PsiMethodCallExpressionImpl;
+import com.intellij.psi.impl.source.tree.java.PsiReferenceExpressionImpl;
+import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiTypesUtil;
+import com.intellij.psi.xml.XmlTag;
+import org.jetbrains.android.facet.AndroidFacet;
+import org.jetbrains.android.facet.SimpleClassMapConstructor;
+import org.jetbrains.android.util.AndroidResourceUtil;
+import org.jetbrains.annotations.NotNull;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+public class ButterKnifeNoViewWithIdInspection extends BaseJavaLocalInspectionTool {
+    public static Set<String> butterKnifeAnnotations;
+
+    static {
+        butterKnifeAnnotations = new HashSet<String>();
+        butterKnifeAnnotations.add("butterknife.InjectView");
+        butterKnifeAnnotations.add("butterknife.InjectViews");
+        butterKnifeAnnotations.add("butterknife.OnClick");
+        butterKnifeAnnotations.add("butterknife.OnCheckedChanged");
+        butterKnifeAnnotations.add("butterknife.OnEditorAction");
+        butterKnifeAnnotations.add("butterknife.OnFocusChange");
+        butterKnifeAnnotations.add("butterknife.OnItemClick");
+        butterKnifeAnnotations.add("butterknife.OnLongClick");
+        butterKnifeAnnotations.add("butterknife.OnTouch");
+        butterKnifeAnnotations.add("butterknife.OnItemSelected");
+        butterKnifeAnnotations.add("butterknife.OnPageChange");
+        butterKnifeAnnotations.add("butterknife.OnTextChanged");
+    }
+
+    @NotNull
+    @Override
+    public PsiElementVisitor buildVisitor(@NotNull final ProblemsHolder holder, boolean isOnTheFly) {
+        return new RelatedLayoutFilesVisitor(holder);
+    }
+
+    private static class MyJavaElementVisitor extends JavaRecursiveElementWalkingVisitor {
+
+        private final ProblemsHolder holder;
+        private PsiFile layoutFile;
+
+        public MyJavaElementVisitor(ProblemsHolder holder, PsiFile layoutFile) {
+            this.holder = holder;
+            this.layoutFile = layoutFile;
+        }
+
+        @Override
+        public void visitElement(PsiElement element) {
+            super.visitElement(element);
+        }
+
+        @Override
+        public void visitAnnotation(PsiAnnotation annotation) {
+            super.visitAnnotation(annotation);
+            final String qualifiedName = annotation.getQualifiedName();
+            if (qualifiedName != null) {
+
+                if (butterKnifeAnnotations.contains(qualifiedName)) {
+                    final PsiElement parent = annotation.getParent();
+                    if (parent != null) {
+                        final PsiElement psiElement = parent.getParent();
+                        if (psiElement != null) {
+                            if (psiElement instanceof PsiField || psiElement instanceof PsiMethod) {
+                                final PsiNameValuePair[] attributes = annotation.getParameterList().getAttributes();
+                                if (attributes.length > 0) {
+                                    final PsiNameValuePair attribute = attributes[0];
+                                    final PsiAnnotationMemberValue value = attribute.getValue();
+                                    if (value != null) {
+                                        if (value instanceof PsiArrayInitializerMemberValue) {
+                                            PsiArrayInitializerMemberValue memberValue = (PsiArrayInitializerMemberValue) value;
+                                            for (PsiAnnotationMemberValue arrayValue : memberValue.getInitializers()) {
+                                                handleValue(annotation, psiElement, arrayValue);
+                                            }
+                                        } else {
+                                            handleValue(annotation, psiElement, value);
+                                        }
+
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                }
+            }
+        }
+
+        private void handleValue(PsiAnnotation annotation, PsiElement psiElement, PsiAnnotationMemberValue value) {
+            final PsiReference[] references = value.getReferences();
+            for (PsiReference reference : references) {
+                final PsiElement element = reference.resolve();
+                if (element instanceof PsiField) {
+                    final List<PsiElement> resourcesByField = AndroidResourceUtil.findResourcesByField((PsiField) element);
+                    PsiElement foundElement = null;
+                    boolean found = false;
+                    for (PsiElement idElement : resourcesByField) {
+                        if (idElement.getContainingFile().equals(layoutFile)) {
+                            found = true;
+                            foundElement = idElement;
+                        }
+                    }
+                    if (!found) {
+                        if (!isOptional(annotation)) {
+                            VirtualFile virtualFile = layoutFile.getVirtualFile();
+                            ButterKnifeAddOptional knifeAddOptional = new ButterKnifeAddOptional("butterknife.Optional", (PsiModifierListOwner) psiElement);
+                            holder.registerProblem(value, "No Matching id in  " + virtualFile.getParent().getName() + "/" + virtualFile.getPresentableName(), knifeAddOptional);
+                        }
+                    } else {
+                        if (psiElement instanceof PsiField) {
+                            PsiField field = (PsiField) psiElement;
+                            PsiType psiType = field.getType();
+                            AndroidFacet facet = AndroidFacet.getInstance(element);
+
+                            XmlTag tag = null;
+                            PsiElement attribute = foundElement.getParent();
+                            if (attribute != null) {
+                                tag = (XmlTag) attribute.getParent();
+                            }
+
+                            if (facet != null && tag != null) {
+                                PsiClass tagClass = SimpleClassMapConstructor.findClassByTagName(facet, tag.getName(), "android.view.View");
+                                if (tagClass != null) {
+                                    PsiClassType classType = PsiTypesUtil.getClassType(tagClass);
+                                    if (!psiType.isAssignableFrom(classType)) {
+                                        VirtualFile virtualFile = layoutFile.getVirtualFile();
+                                        holder.registerProblem(field, "Type is not matching in " + virtualFile.getParent().getName() + "/" + virtualFile.getPresentableName());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static class RelatedLayoutFilesVisitor extends JavaElementVisitor {
+        private ProblemsHolder holder;
+
+        public RelatedLayoutFilesVisitor(ProblemsHolder holder) {
+
+            this.holder = holder;
+        }
+
+        @Override
+        public void visitReferenceExpression(PsiReferenceExpression expression) {
+            super.visitReferenceExpression(expression);
+            final AndroidFacet instance = AndroidFacet.getInstance(expression);
+            PsiMethodCallExpression methodCall = PsiTreeUtil.getParentOfType(expression, PsiMethodCallExpression.class);
+
+            if (methodCall != null) {
+                PsiReferenceExpression methodExpression = methodCall.getMethodExpression();
+                PsiReference reference = methodExpression.getReference();
+
+                if (reference != null) {
+                    if (isBaseLayout(expression, reference)) {
+
+                        if (instance != null) {
+
+                            final AndroidResourceUtil.MyReferredResourceFieldInfo info = AndroidResourceUtil.getReferredResourceOrManifestField(instance, expression, false);
+                            if (info != null && !info.isFromManifest()) {
+                                final String className = info.getClassName();
+                                final String fieldName = info.getFieldName();
+                                final List<PsiElement> related = instance.getLocalResourceManager().findResourcesByFieldName(className, fieldName);
+                                for (PsiElement psiElement : related) {
+                                    if (psiElement instanceof PsiFile) {
+                                        PsiFile layoutFile = (PsiFile) psiElement;
+
+
+                                        final PsiClass psiClass = PsiTreeUtil.getParentOfType(expression, PsiClass.class);
+                                        if (psiClass != null) {
+                                            psiClass.accept(new MyJavaElementVisitor(holder, layoutFile));
+                                        }
+                                    }
+                                }
+
+                            }
+                        }
+
+                    }
+                }
+            }
+        }
+
+    }
+
+
+    private static boolean isBaseLayout(PsiReferenceExpression expression, PsiReference reference) {
+        PsiClass clazz = PsiTreeUtil.getParentOfType(expression, PsiClass.class);
+        if (clazz != null) {
+            if (ButterKnifeUtils.isActivity(clazz)) {
+                String canonicalText = reference.getCanonicalText();
+                if (canonicalText.contains("setContentView")) {
+                    return true;
+                }
+            } else if (ButterKnifeUtils.isFragment(clazz)) {
+                PsiMethod method = PsiTreeUtil.getParentOfType(expression, PsiMethod.class);
+                if (method != null && method.getName().equals("onCreateView")) {
+                    if (fromInflater(reference)) {
+                        return true;
+                    }
+                }
+            } else if (ButterKnifeUtils.isView(clazz)) {
+                PsiMethod method = PsiTreeUtil.getParentOfType(expression, PsiMethod.class);
+                String clazzName = clazz.getName();
+                if (method != null && method.getName().equals(clazzName)) {
+                    if(fromInflater(reference)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean fromInflater(PsiReference reference) {
+        if (reference instanceof PsiReferenceExpression) {
+            PsiReferenceExpression referenceExpression = (PsiReferenceExpression) reference;
+            PsiElement parent = referenceExpression.getParent();
+            if (parent instanceof PsiMethodCallExpression) {
+                PsiMethodCallExpressionImpl methodCallExpression = (PsiMethodCallExpressionImpl) ((PsiReferenceExpressionImpl) reference).getParent();
+                PsiReferenceExpression methodExpression = methodCallExpression.getMethodExpression();
+                PsiExpression qualifierExpression = methodExpression.getQualifierExpression();
+                if (qualifierExpression != null) {
+                    PsiType psiType = qualifierExpression.getType();
+                    if (psiType != null) {
+                        String canonicalText = psiType.getCanonicalText();
+                        if ("android.view.LayoutInflater".equals(canonicalText)) {
+                            if ("inflate".equals(methodExpression.getReferenceName())) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isOptional(PsiAnnotation psiAnnotation) {
+        PsiAnnotationOwner annotationOwner = psiAnnotation.getOwner();
+        if (annotationOwner != null) {
+            PsiAnnotation annotation = annotationOwner.findAnnotation("butterknife.Optional");
+            if (annotation != null)
+                return true;
+        }
+        return false;
+    }
+}

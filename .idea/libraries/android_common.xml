@@ -1,0 +1,14 @@
+<component name="libraryTable">
+  <library name="android-common">
+    <ANNOTATIONS>
+      <root url="jar://C:/Program Files (x86)/JetBrains/IntelliJ IDEA Community Edition 14.0.1/plugins/android/lib/androidAnnotations.jar!/" />
+    </ANNOTATIONS>
+    <CLASSES>
+      <root url="jar://C:/Program Files (x86)/JetBrains/IntelliJ IDEA Community Edition 14.0.1/plugins/android/lib/android-common.jar!/" />
+      <root url="jar://C:/Program Files (x86)/JetBrains/IntelliJ IDEA Community Edition 14.0.1/plugins/android/lib/android-rt.jar!/" />
+      <root url="jar://C:/Program Files (x86)/JetBrains/IntelliJ IDEA Community Edition 14.0.1/plugins/android/lib/android.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
