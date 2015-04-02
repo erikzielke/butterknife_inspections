@@ -7,11 +7,13 @@ import com.intellij.ide.hierarchy.call.CallHierarchyNodeDescriptor;
 import com.intellij.ide.hierarchy.call.CalleeMethodsTreeStructure;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.util.PsiTreeUtil;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static dk.erikzielke.android.butterknife.inspections.ButterKnifeUtils.*;
-import static dk.erikzielke.android.butterknife.inspections.ButterKnifeUtils.isView;
 
 public class ButterKnifeInjectNotCalledInspection extends BaseJavaLocalInspectionTool {
     @NotNull
@@ -51,13 +53,34 @@ public class ButterKnifeInjectNotCalledInspection extends BaseJavaLocalInspectio
     }
 
     private void checkMethodHasInjectCall(Project project, PsiMethod onCreateMethod, @NotNull ProblemsHolder holder) {
+
+        PsiCodeBlock body = onCreateMethod.getBody();
+        if (body != null) {
+            PsiExpressionStatement[] childrenOfType = PsiTreeUtil.getChildrenOfType(body, PsiExpressionStatement.class);
+            if (childrenOfType != null) {
+                for (PsiExpressionStatement psiMethodCallExpression : childrenOfType) {
+                    PsiExpression expression = psiMethodCallExpression.getExpression();
+                    if (expression instanceof PsiMethodCallExpression) {
+                        PsiReferenceExpression[] referenceExpressions = PsiTreeUtil.getChildrenOfType(expression, PsiReferenceExpression.class);
+                        if (referenceExpressions != null) {
+                            for (PsiReferenceExpression referenceExpression : referenceExpressions) {
+                                if (referenceExpression.getCanonicalText().equals("ButterKnife.inject")) {
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         CalleeMethodsTreeStructure calleeMethodsTreeStructure = new CalleeMethodsTreeStructure(project, onCreateMethod, HierarchyBrowserBaseEx.SCOPE_ALL);
         final CallHierarchyNodeDescriptor rootElement = (CallHierarchyNodeDescriptor) calleeMethodsTreeStructure.getRootElement();
-        if (!doesCallInjectView(calleeMethodsTreeStructure, rootElement)) {
+        if (!doesCallInjectView(calleeMethodsTreeStructure, rootElement, 0)) {
             holder.registerProblem(onCreateMethod, "ButterKnife.inject needs to be called");
         }
-    }
 
+    }
 
 
     private boolean hasButterKnifeAnnotations(PsiClass psiClass) {
@@ -66,38 +89,45 @@ public class ButterKnifeInjectNotCalledInspection extends BaseJavaLocalInspectio
         return visitor.hasButterKnifeAnnotations();
     }
 
-    public boolean doesCallInjectView(CalleeMethodsTreeStructure calleeMethodsTreeStructure, CallHierarchyNodeDescriptor rootElement) {
-        final PsiElement targetElement = rootElement.getTargetElement();
-        if (targetElement instanceof PsiMethod) {
-            final PsiMethod psiMethod = (PsiMethod) targetElement;
-            final PsiClass containingClass = psiMethod.getContainingClass();
-            if (containingClass != null) {
-                final String qualifiedName = containingClass.getQualifiedName();
-                if (qualifiedName != null) {
-                    final boolean isInjectCall = qualifiedName.equals("butterknife.ButterKnife");
-                    if (isInjectCall) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        final Object[] childElements = calleeMethodsTreeStructure.getChildElements(rootElement);
-        for (int index = childElements.length - 1; index >= 0; index--) {
-            Object childElement = childElements[index];
-            final CallHierarchyNodeDescriptor element = (CallHierarchyNodeDescriptor) childElement;
-            final PsiElement method = element.getTargetElement();
-            if (method instanceof PsiMethod) {
-                PsiMethod psiMethod = (PsiMethod) method;
+    //TODO: Go breadth first
+    public boolean doesCallInjectView(CalleeMethodsTreeStructure calleeMethodsTreeStructure, CallHierarchyNodeDescriptor rootElement, int level) {
+        if (level < 3) {
+            final PsiElement targetElement = rootElement.getTargetElement();
+            if (targetElement instanceof PsiMethod) {
+                final PsiMethod psiMethod = (PsiMethod) targetElement;
                 final PsiClass containingClass = psiMethod.getContainingClass();
                 if (containingClass != null) {
                     final String qualifiedName = containingClass.getQualifiedName();
                     if (qualifiedName != null) {
-                        if (!qualifiedName.startsWith("android"))
-                            if (doesCallInjectView(calleeMethodsTreeStructure, element)) {
-                                return true;
-                            }
+                        final boolean isInjectCall = qualifiedName.equals("butterknife.ButterKnife");
+                        if (isInjectCall) {
+                            return true;
+                        }
                     }
+                }
+            }
+
+            List<CallHierarchyNodeDescriptor> potentialChildrenToCheck = new ArrayList<CallHierarchyNodeDescriptor>();
+            final Object[] childElements = calleeMethodsTreeStructure.getChildElements(rootElement);
+            for (int index = childElements.length - 1; index >= 0; index--) {
+                Object childElement = childElements[index];
+                final CallHierarchyNodeDescriptor element = (CallHierarchyNodeDescriptor) childElement;
+                final PsiElement method = element.getTargetElement();
+                if (method instanceof PsiMethod) {
+                    PsiMethod psiMethod = (PsiMethod) method;
+                    final PsiClass containingClass = psiMethod.getContainingClass();
+                    if (containingClass != null) {
+                        final String qualifiedName = containingClass.getQualifiedName();
+                        if (qualifiedName != null) {
+                            if (!qualifiedName.startsWith("android"))
+                                potentialChildrenToCheck.add(element);
+                        }
+                    }
+                }
+            }
+            for (CallHierarchyNodeDescriptor element : potentialChildrenToCheck) {
+                if (doesCallInjectView(calleeMethodsTreeStructure, element, level + 1)) {
+                    return true;
                 }
             }
         }
@@ -106,6 +136,7 @@ public class ButterKnifeInjectNotCalledInspection extends BaseJavaLocalInspectio
 
     private static class HasButterKnifeAnnotationsVisitor extends JavaRecursiveElementWalkingVisitor {
         private boolean hasButterKnifeAnnotations;
+
         @Override
         public void visitAnnotation(PsiAnnotation annotation) {
             super.visitAnnotation(annotation);
@@ -114,6 +145,7 @@ public class ButterKnifeInjectNotCalledInspection extends BaseJavaLocalInspectio
                 hasButterKnifeAnnotations = true;
             }
         }
+
         public boolean hasButterKnifeAnnotations() {
             return hasButterKnifeAnnotations;
         }
