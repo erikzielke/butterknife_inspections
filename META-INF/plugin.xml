@@ -1,25 +1,34 @@
 <idea-plugin version="2">
     <id>dk.erikzielke.android.butterknife.inspections</id>
     <name>ButterKnife Inspections</name>
-    <version>0.1</version>
+    <version>0.1.1</version>
     <vendor email="erikzielke@hotmail.com" url="http://www.erikziele.dk">Erik Zielke</vendor>
 
     <description><![CDATA[
-      This plugin detect shows inspections for common mistakes using ButterKnife. For now the problems detected are:
-      <ul>
-        <li>No call to ButterKnife.inject</li>
-        <li>That a field exists in all layouts or is optional</li>
-        <li>That the type of the field matches in all views</li>
-      </ul>
+        This plugin detect shows inspections for common mistakes using ButterKnife. For now the problems detected are:
+        <ul>
+            <li>No call to ButterKnife.inject</li>
+            <li>That a field exists in all layouts or is optional</li>
+            <li>That the type of the field matches in all views</li>
+        </ul>
 
-      <p>The detection for which layouts to check for matching ids is based on the following:
-      <ul>
-        <li>Each setContentView call in onCreate of an activity</li>
-        <li>Each inflate in onCreateView in a Fragment</li>
-        <li>Each inflate in each constructor in a View</li>
-      </ul>
-      </p>
-    ]]></description>
+        <p>The detection for which layouts to check for matching ids is based on the following:
+        <ul>
+            <li>Each setContentView call in onCreate of an activity</li>
+            <li>Each inflate in onCreateView in a Fragment</li>
+            <li>Each inflate in each constructor in a View</li>
+        </ul>
+        </p>
+        ]]>
+    </description>
+
+    <change-notes>
+        <![CDATA[
+        <ul>
+            <li><strong>0.1.1</strong> - performance improvements</li>
+        </ul>
+        ]]>
+    </change-notes>
 
     <idea-version since-build="131"/>
 
