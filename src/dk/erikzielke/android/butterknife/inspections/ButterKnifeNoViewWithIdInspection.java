@@ -9,12 +9,21 @@ import com.intellij.psi.impl.source.tree.java.PsiMethodCallExpressionImpl;
 import com.intellij.psi.impl.source.tree.java.PsiReferenceExpressionImpl;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiTypesUtil;
+import com.intellij.psi.xml.XmlAttribute;
+import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.util.xml.DomFileElement;
+import com.intellij.util.xml.DomManager;
+import com.intellij.util.xml.DomUtil;
+import org.jetbrains.android.dom.AndroidDomElement;
+import org.jetbrains.android.dom.layout.Include;
+import org.jetbrains.android.dom.resources.ResourceValue;
 import org.jetbrains.android.facet.AndroidFacet;
 import org.jetbrains.android.facet.SimpleClassMapConstructor;
 import org.jetbrains.android.util.AndroidResourceUtil;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -107,6 +116,12 @@ public class ButterKnifeNoViewWithIdInspection extends BaseJavaLocalInspectionTo
                         if (idElement.getContainingFile().equals(layoutFile)) {
                             found = true;
                             foundElement = idElement;
+                        } else {
+                            boolean isInIncludes = checkIncludes(layoutFile, element);
+                            if (isInIncludes) {
+                                found = true;
+                                foundElement = idElement;
+                            }
                         }
                     }
                     if (!found) {
@@ -137,6 +152,64 @@ public class ButterKnifeNoViewWithIdInspection extends BaseJavaLocalInspectionTo
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        private boolean checkIncludes(PsiFile layoutFile, PsiElement idElement) {
+            AndroidFacet facet = AndroidFacet.getInstance(idElement);
+            PsiFile containingFile = idElement.getContainingFile();
+            DomFileElement<AndroidDomElement> fileElement = DomManager.getDomManager(layoutFile.getProject()).getFileElement((XmlFile) layoutFile, AndroidDomElement.class);
+            boolean found = false;
+
+            if (fileElement != null) {
+                AndroidDomElement rootElement = fileElement.getRootElement();
+                List<Include> includes = DomUtil.getChildrenOfType(rootElement, Include.class);
+                for (Include include : includes) {
+                    ResourceValue value = include.getLayout().getValue();
+                    if (value != null) {
+                        if (facet != null) {
+                            if (value.getResourceType() != null && value.getResourceName() != null) {
+                                List<PsiFile> resourceFiles = facet.getLocalResourceManager().findResourceFiles(value.getResourceType(), value.getResourceName());
+                                if (!resourceFiles.isEmpty()) {
+
+                                    found = isInAllIncludes(idElement, found, resourceFiles);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return found;
+        }
+
+        private boolean isInAllIncludes(PsiElement idElement, boolean found, List<PsiFile> resourceFiles) {
+            boolean result = true;
+            for (PsiFile resourceFile : resourceFiles) {
+                IdsInLayoutXmlVisitor psiElementVisitor = new IdsInLayoutXmlVisitor();
+                resourceFile.accept(psiElementVisitor);
+                PsiField field = (PsiField) idElement;
+                if (!psiElementVisitor.ids.contains(field.getName())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static class IdsInLayoutXmlVisitor extends XmlRecursiveElementVisitor {
+            private List<String> ids = new ArrayList<String>();
+            @Override
+            public void visitElement(PsiElement element) {
+                super.visitElement(element);
+                if (element instanceof XmlTag) {
+                    XmlTag tag = (XmlTag) element;
+                    XmlAttribute idAttribute = tag.getAttribute("android:id");
+                    if (idAttribute != null) {
+                        String value = idAttribute.getValue();
+                        if (value != null) {
+                            ids.add(value.replace("@+id/",""));
                         }
                     }
                 }
@@ -214,7 +287,7 @@ public class ButterKnifeNoViewWithIdInspection extends BaseJavaLocalInspectionTo
                 PsiMethod method = PsiTreeUtil.getParentOfType(expression, PsiMethod.class);
                 String clazzName = clazz.getName();
                 if (method != null && method.getName().equals(clazzName)) {
-                    if(fromInflater(reference)) {
+                    if (fromInflater(reference)) {
                         return true;
                     }
                 }
