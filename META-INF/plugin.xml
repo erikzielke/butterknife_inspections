@@ -17,6 +17,7 @@
             <li>Each setContentView call in onCreate of an activity</li>
             <li>Each inflate in onCreateView in a Fragment</li>
             <li>Each inflate in each constructor in a View</li>
+            <li>Trying to figure out for ViewHolders by data flow analysis and find usages</li>
         </ul>
         </p>
         ]]>
@@ -25,7 +26,8 @@
     <change-notes>
         <![CDATA[
         <ul>
-            <li><strong>0.1.2</strong> - resolve ids from included files</li>
+            <li><strong>0.1.2</strong> - support for view holder pattern</li>
+            <li><strong>0.1.2</strong> - resolve ids from included files (only 1 level for now)</li>
             <li><strong>0.1.1</strong> - performance improvements</li>
         </ul>
         ]]>

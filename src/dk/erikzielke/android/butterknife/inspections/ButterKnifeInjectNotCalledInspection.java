@@ -19,32 +19,35 @@ public class ButterKnifeInjectNotCalledInspection extends BaseJavaLocalInspectio
     @NotNull
     @Override
     public PsiElementVisitor buildVisitor(@NotNull final ProblemsHolder holder, boolean isOnTheFly) {
-        return new JavaElementVisitor() {
+        return new JavaRecursiveElementVisitor() {
             @Override
             public void visitClass(PsiClass psiClass) {
                 super.visitClass(psiClass);
                 boolean isActivity = isActivity(psiClass);
                 boolean isFragment = !isActivity && isFragment(psiClass);
                 boolean isView = !isFragment && isView(psiClass);
-                if (isActivity || isFragment || isView) {
-                    if (hasButterKnifeAnnotations(psiClass)) {
-                        if (isActivity) {
-                            final PsiMethod[] onCreate = psiClass.findMethodsByName("onCreate", false);
-                            if (onCreate.length != 0) {
-                                final PsiMethod onCreateMethod = onCreate[0];
-                                checkMethodHasInjectCall(psiClass.getProject(), onCreateMethod, holder);
-                            }
-                        } else if (isFragment) {
-                            PsiMethod[] onCreateViews = psiClass.findMethodsByName("onCreateView", false);
-                            if (onCreateViews.length != 0) {
-                                PsiMethod onCreateViewMethod = onCreateViews[0];
-                                checkMethodHasInjectCall(psiClass.getProject(), onCreateViewMethod, holder);
-                            }
-                        } else {
-                            PsiMethod[] constructors = psiClass.findMethodsByName(psiClass.getName(), true);
-                            for (PsiMethod constructor : constructors) {
-                                checkMethodHasInjectCall(psiClass.getProject(), constructor, holder);
-                            }
+                if (hasButterKnifeAnnotations(psiClass)) {
+                    if (isActivity) {
+                        final PsiMethod[] onCreate = psiClass.findMethodsByName("onCreate", false);
+                        if (onCreate.length != 0) {
+                            final PsiMethod onCreateMethod = onCreate[0];
+                            checkMethodHasInjectCall(psiClass.getProject(), onCreateMethod, holder);
+                        }
+                    } else if (isFragment) {
+                        PsiMethod[] onCreateViews = psiClass.findMethodsByName("onCreateView", false);
+                        if (onCreateViews.length != 0) {
+                            PsiMethod onCreateViewMethod = onCreateViews[0];
+                            checkMethodHasInjectCall(psiClass.getProject(), onCreateViewMethod, holder);
+                        }
+                    } else if (isView) {
+                        PsiMethod[] constructors = psiClass.findMethodsByName(psiClass.getName(), true);
+                        for (PsiMethod constructor : constructors) {
+                            checkMethodHasInjectCall(psiClass.getProject(), constructor, holder);
+                        }
+                    } else {
+                        PsiMethod[] constructors = psiClass.findMethodsByName(psiClass.getName(), true);
+                        for (PsiMethod constructor : constructors) {
+                            checkMethodHasInjectCall(psiClass.getProject(), constructor, holder);
                         }
                     }
                 }
@@ -84,7 +87,7 @@ public class ButterKnifeInjectNotCalledInspection extends BaseJavaLocalInspectio
 
 
     private boolean hasButterKnifeAnnotations(PsiClass psiClass) {
-        final HasButterKnifeAnnotationsVisitor visitor = new HasButterKnifeAnnotationsVisitor();
+        final HasButterKnifeAnnotationsVisitor visitor = new HasButterKnifeAnnotationsVisitor(psiClass);
         psiClass.accept(visitor);
         return visitor.hasButterKnifeAnnotations();
     }
@@ -136,6 +139,18 @@ public class ButterKnifeInjectNotCalledInspection extends BaseJavaLocalInspectio
 
     private static class HasButterKnifeAnnotationsVisitor extends JavaRecursiveElementWalkingVisitor {
         private boolean hasButterKnifeAnnotations;
+        private PsiClass psiClass;
+
+        public HasButterKnifeAnnotationsVisitor(PsiClass psiClass) {
+            this.psiClass = psiClass;
+        }
+
+        @Override
+        public void visitClass(PsiClass aClass) {
+            if (aClass.equals(psiClass)) {
+                super.visitClass(aClass);
+            }
+        }
 
         @Override
         public void visitAnnotation(PsiAnnotation annotation) {
